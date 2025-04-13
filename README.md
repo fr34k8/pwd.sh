@@ -1,8 +1,8 @@
-pwd.sh is a Bash shell script to manage passwords and other text-based secrets.
+pwd.sh is a Bash shell script to manage text-based secrets, such as passwords.
 
 It uses GnuPG to symmetrically (i.e., using a passphrase) encrypt and decrypt plaintext files.
 
-Each password is encrypted individually as a randomly-named file in the "safe" directory. An encrypted index is used to map usernames to the respective password file. Both the index and password files can also be decrypted directly with GnuPG without this script.
+Each secret is individually encrypted to a randomly-named file in the *safe* directory. An encrypted index is used to map usernames to the respective secret file. Both the index and secret files can be decrypted with GnuPG without requiring pwd.sh.
 
 # Install
 
@@ -20,10 +20,10 @@ Versioned [Releases](https://github.com/drduh/pwd.sh/releases) are also availabl
 
 Run the script interactively using `./pwd.sh` or symlink to a directory in `PATH`:
 
-- `w` to write a password
-- `r` to read a password
-- `l` to list passwords
-- `b` to create an archive for backup
+- `w` to create a secret
+- `r` to access a secret
+- `l` to list all secrets
+- `b` to create a backup archive
 - `h` to print the help text
 
 Options can also be passed on the command line.
@@ -89,9 +89,11 @@ Also see [drduh/Purse](https://github.com/drduh/Purse) - a fork which integrates
 
 The [Pepper](https://www.wikipedia.org/wiki/Pepper_(cryptography)) is an additional string appended to the safe passphrase to improve its strength. When the `PWDSH_PEPPER` option is set to a valid path, a secret value is generated and displayed once, then saved to the respective file.
 
-The Pepper should be written down (for example, transcribed with [passphrase.html](https://github.com/drduh/YubiKey-Guide/blob/master/templates/passphrase.html) or [passphrase.txt](https://raw.githubusercontent.com/drduh/YubiKey-Guide/master/templates/passphrase.txt) template) and stored in a secure, durable location for backup.
+The Pepper should be written down (for example, transcribed with [passphrase.html](https://raw.githubusercontent.com/drduh/YubiKey-Guide/master/templates/passphrase.html) or [passphrase.txt](https://raw.githubusercontent.com/drduh/YubiKey-Guide/master/templates/passphrase.txt) template) and stored in a secure, durable location for backup.
 
-This feature may enable use of a more memorable - and possibly weaker passphrase - for convenience.
+This feature may enable use of a more memorable - and possibly weaker passphrase - for convenience, while still guarding backups against passphrase brute-force attempts (provided the Pepper is backed up separately).
+
+The Pepper feature is opt-in and has no effect unless explicitly enabled.
 
 > [!WARNING]
-> The Pepper is **not** included in backup archives! Without the Pepper, the safe will **not** be accessible with the safe passphrase alone! The Pepper feature is opt-in and has no effect unless explicitly enabled.
+> The Pepper is **not** included in backup archives! Without the Pepper, the safe will **not** be accessible with the safe passphrase alone!
