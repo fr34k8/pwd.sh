@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # https://github.com/drduh/pwd.sh/blob/master/pwd.sh
+
 #set -x  # uncomment to debug
 set -o errtrace
 set -o nounset
 set -o pipefail
+
 umask 077
 export LC_ALL="C"
 
+gpg="$(command -v gpg || command -v gpg2)"
+gpg_dir="${HOME}/.gnupg"
+gpg_conf="${gpg_dir}/gpg.conf"
+
 now="$(date +%s)"
 today="$(date +%F)"
-gpg="$(command -v gpg || command -v gpg2)"
-gpg_conf="${HOME}/.gnupg/gpg.conf"
 
 clip="${PWDSH_CLIP:=xclip}"           # clipboard, 'pbcopy' on macOS
 clip_args="${PWDSH_CLIP_ARGS:=}"      # args to pass to clip command
@@ -28,7 +32,7 @@ safe_backup="${PWDSH_BACKUP:=pwd.$(hostname).${today}.tar}"
 pass_chars="${PWDSH_CHARS:='[:alnum:]!?@#$%^&*();:+='}"
 
 trap cleanup EXIT INT TERM
-cleanup () {
+cleanup() {
   # "Lock" files on trapped exits.
 
   ret=$?
@@ -36,19 +40,19 @@ cleanup () {
   exit ${ret}
 }
 
-fail () {
+fail() {
   # Print an error in red and exit.
 
-  tput setaf 1 ; printf "\nERROR: %s\n" "${1}" ; tput sgr0
+  tput setaf 1 ; printf "ERROR: %s\n" "${1}" ; tput sgr0
   exit 1
 }
 
-warn () {
+warn() {
   # Print a warning in yellow.
-  tput setaf 3 ; printf "\nWARNING: %s\n" "${1}" ; tput sgr0
+  tput setaf 3 ; printf "WARNING: %s\n" "${1}" ; tput sgr0
 }
 
-generate_pepper () {
+generate_pepper() {
   # Generate pepper, avoid ambiguous characters.
 
   warn "${pepper} created"
@@ -59,7 +63,7 @@ generate_pepper () {
   printf "\n"
 }
 
-get_pass () {
+get_pass() {
   # Prompt for a password.
 
   password=""
@@ -81,7 +85,7 @@ get_pass () {
   done
 }
 
-decrypt () {
+decrypt() {
   # Decrypt with GPG.
 
   printf "%s" "${1}${pep}" | \
@@ -89,7 +93,7 @@ decrypt () {
     --decrypt --passphrase-fd 0 "${2}" 2>/dev/null
 }
 
-encrypt () {
+encrypt() {
   # Encrypt with GPG.
 
   ${gpg} --armor --batch --comment "${comment}" \
@@ -98,7 +102,7 @@ encrypt () {
     <(printf "%s" "${1}${pep}") 2>/dev/null
 }
 
-read_pass () {
+read_pass() {
   # Read a password from safe.
 
   if [[ ! -s "${safe_ix}" ]] ; then fail "${safe_ix} not found" ; fi
@@ -119,7 +123,7 @@ read_pass () {
     fail "Failed to decrypt ${spath}"
 }
 
-generate_pass () {
+generate_pass() {
   # Generate a password from urandom.
 
   if [[ -z "${3+x}" ]] ; then read -r -p "
@@ -134,7 +138,7 @@ generate_pass () {
     fold -w "${pass_len}" | head -1
 }
 
-generate_user () {
+generate_user() {
   # Generate a username.
 
   printf "%s%s\n" \
@@ -144,7 +148,7 @@ generate_user () {
     "$(tr -dc "[:digit:]" < /dev/urandom | fold -w 4 | head -1)"
 }
 
-write_pass () {
+write_pass() {
   # Write a password and update the index.
 
   spath="${safe_dir}/$(tr -dc "[:lower:]" < /dev/urandom | \
@@ -167,7 +171,7 @@ write_pass () {
         fail "Failed saving ${safe_ix}.${now}"
 }
 
-list_entry () {
+list_entry() {
   # Decrypt the index to list entries.
 
   if [[ ! -s "${safe_ix}" ]] ; then fail "${safe_ix} not found" ; fi
@@ -175,7 +179,7 @@ list_entry () {
   decrypt "${password}" "${safe_ix}" || fail "${safe_ix} not available"
 }
 
-backup () {
+backup() {
   # Archive index, safe and configuration.
 
   if [[ ! -f "${safe_backup}" ]] ; then
@@ -189,7 +193,7 @@ backup () {
   else warn "${safe_backup} exists, skipping archive" ; fi
 }
 
-emit_pass () {
+emit_pass() {
   # Use clipboard or stdout and clear after timeout.
 
   if [[ "${clip_dest}" = "screen" ]] ; then
@@ -207,7 +211,7 @@ emit_pass () {
   else printf "\n" ; printf "" | ${clip} ; fi
 }
 
-new_entry () {
+new_entry() {
   # Prompt for username and password.
 
   if [[ -z "${2+x}" ]] ; then read -r -p "
@@ -227,7 +231,7 @@ new_entry () {
     userpass=$(generate_pass "$@") ; fi
 }
 
-print_help () {
+print_help() {
   # Print help text.
 
   printf """
@@ -253,24 +257,35 @@ print_help () {
     tar xvf pwd*tar\n"""
 }
 
-if [[ -z "${gpg}" ]] ; then fail "GnuPG is not available" ; fi
+initGnuPG() {
+  [[ -n "${gpg}" ]]      || fail "GnuPG binary not available"
+  [[ -f "${gpg_conf}" ]] || fail "GnuPG config not available"
+}
 
-if [[ ! -f "${gpg_conf}" ]] ; then fail "GnuPG config is not available" ; fi
+initSafeDir() {
+  if [[ ! -d "${safe_dir}" ]] ; then mkdir -p "${safe_dir}" ; fi
+}
 
-if [[ ! -d "${safe_dir}" ]] ; then mkdir -p "${safe_dir}" ; fi
+initPepper() {
+  if [[ -n "${pepper}" && ! -f "${pepper}" ]] ; then
+    generatePepper ; fi
+  chmod -R 0700 "${pepper}" "${safe_dir}" "${safe_ix}" 2>/dev/null
+  if [[ -f "${pepper}" ]] ; then
+    pep="$(cat "${pepper}")" ; else pep="" ; fi
+}
 
-if [[ -n "${pepper}" && ! -f "${pepper}" ]] ; then generate_pepper ; fi
+initClipboard() {
+  if [[ -z "$(command -v "${clip}")" ]] ; then
+    warn "clipboard not available - secrets will appear on screen/stdout!"
+    clip_dest="screen"
+  elif [[ -n "${clip_args}" ]] ; then
+    clip+=" ${clip_args}" ; fi
+}
 
-chmod -R 0700 "${pepper}" "${safe_dir}" "${safe_ix}" 2>/dev/null
-
-if [[ -f "${pepper}" ]] ; then pep="$(cat ${pepper})" ; else pep="" ; fi
-
-if [[ -z "$(command -v ${clip})" ]] ; then
-  warn "Clipboard not available, passwords will print to screen/stdout!"
-  clip_dest="screen"
-elif [[ -n "${clip_args}" ]] ; then
-  clip+=" ${clip_args}"
-fi
+initGnuPG
+initSafeDir
+initPepper
+initClipboard
 
 username=""
 password=""
