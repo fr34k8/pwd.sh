@@ -40,16 +40,33 @@ cleanup() {
   exit ${ret}
 }
 
-fail() {
-  # Print an error in red and exit.
+timestamp() {
+  # Format current date and time.
 
-  tput setaf 1 ; printf "ERROR: %s\n" "${1}" ; tput sgr0
+  date +"%A %b %d %H:%M:%S"
+}
+
+fail() {
+  # Print error message in red and exit with failure.
+
+  tput setaf 1 ; printf "($(timestamp)) %s\n" "${1}" ; \
+  tput sgr0
   exit 1
 }
 
+final() {
+  # Print final message in green and exit with success.
+
+  tput setaf 2 ; printf "($(timestamp)) %s\n" "${1}" ; \
+  tput sgr0
+  exit 0
+}
+
 warn() {
-  # Print a warning in yellow.
-  tput setaf 3 ; printf "WARNING: %s\n" "${1}" ; tput sgr0
+  # Print warning message in yellow.
+
+  tput setaf 3 ; printf "WARNING: %s\n" "${1}" ; \
+  tput sgr0
 }
 
 generate_pepper() {
@@ -307,4 +324,4 @@ elif [[ "${action}" =~ ^([lL])$ ]] ; then list_entry
 elif [[ "${action}" =~ ^([bB])$ ]] ; then backup
 else print_help ; fi
 
-tput setaf 2 ; printf "\nDone\n" ; tput sgr0
+final "Done"
