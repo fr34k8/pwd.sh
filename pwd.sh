@@ -86,12 +86,11 @@ generatePepper() {
   tee "${pepper}" || fail "Failed writing ${pepper}"
 }
 
-get_pass() {
+promptPassword() {
   # Prompt for a password.
 
   password=""
-  prompt="  ${1}"
-  printf "\n"
+  prompt="${1}"
 
   while IFS= read -p "${prompt}" -r -s -n 1 char ; do
     if [[ ${char} == $'\0' ]] ; then break
@@ -106,157 +105,172 @@ get_pass() {
       password+="${char}"
     fi
   done
+
+  printf "\n"
 }
 
 decrypt() {
   # Decrypt with GPG.
 
   printf "%s" "${1}${pep}" | \
-    ${gpg} --armor --batch --no-symkey-cache \
-    --decrypt --passphrase-fd 0 "${2}" 2>/dev/null
+    ${gpg} --armor --batch \
+    --decrypt --no-symkey-cache \
+    --passphrase-fd 0 \
+    "${2}" 2>/dev/null
 }
 
 encrypt() {
   # Encrypt with GPG.
 
-  ${gpg} --armor --batch --comment "${pub_comment}" \
-    --symmetric --yes --passphrase-fd 3 \
+  ${gpg} --armor --batch --yes \
+    --symmetric \
+    --comment "${pub_comment}" \
+    --passphrase-fd 3 \
     --output "${2}" "${3}" 3< \
     <(printf "%s" "${1}${pep}") 2>/dev/null
 }
 
-read_pass() {
-  # Read a password from safe.
+readSecret() {
+  # Read a secret from safe.
 
-  if [[ ! -s "${safe_ix}" ]] ; then fail "${safe_ix} not found" ; fi
+  verifyIndex
 
   while [[ -z "${username}" ]] ; do
-    if [[ -z "${2+x}" ]] ; then read -r -p "
-  Username: " username
+    if [[ -z "${2+x}" ]] ; then read -r -p \
+      "Username: " username
     else username="${2}" ; fi
   done
 
-  get_pass "Password to access ${safe_ix}: " ; printf "\n"
+  promptPassword "Password to access ${safe_ix}: "
 
   spath=$(decrypt "${password}" "${safe_ix}" | \
     grep -F "${username}" | tail -1 | cut -d ":" -f2) || \
       fail "Secret not available"
 
-  emit_pass <(decrypt "${password}" "${spath}") || \
+  revealPass <(decrypt "${password}" "${spath}") || \
     fail "Failed to decrypt ${spath}"
 }
 
-generate_pass() {
-  # Generate a password from urandom.
+generateSecret() {
+  # Generate a secret from urandom.
 
-  if [[ -z "${3+x}" ]] ; then read -r -p "
-  Password length (default: ${pass_len}): " length
+  if [[ -z "${3+x}" ]] ; then read -r -p \
+    "Secret length (default: ${pass_len}): " length
   else length="${3}" ; fi
 
   if [[ "${length}" =~ ^[0-9]+$ ]] ; then
-    pass_len="${length}"
-  fi
+    pass_len="${length}" ; fi
 
   tr -dc "${pass_chars}" < /dev/urandom | \
     fold -w "${pass_len}" | head -1
 }
 
-generate_user() {
+generateUsername() {
   # Generate a username.
 
   printf "%s%s\n" \
     "$(awk 'length > 2 && length < 12 {print(tolower($0))}' \
     /usr/share/dict/words | grep -v "'" | sort -R | head -n2 | \
-    tr "\n" "_" | iconv -f utf-8 -t ascii//TRANSLIT)" \
-    "$(tr -dc "[:digit:]" < /dev/urandom | fold -w 4 | head -1)"
+    tr "\n" "-" | iconv -f utf-8 -t ascii//TRANSLIT)" \
+    "$(tr -dc "[:digit:]" < /dev/urandom | fold -w 3 | head -1)"
 }
 
-write_pass() {
-  # Write a password and update the index.
+writeSecret() {
+  # Write a secret and update the index.
 
-  spath="${safe_dir}/$(tr -dc "[:lower:]" < /dev/urandom | \
-    fold -w10 | head -1)"
+  sname="$(tr -dc "[:lower:]" < /dev/urandom | \
+    fold -w 10 | head -1)"
+  spath="${safe_dir}/${app}.${sname}"
 
   if [[ -n "${pass_copy}" ]] ; then
-    emit_pass <(printf '%s' "${userpass}") ; fi
+    revealPass <(printf '%s' "${userpass}") ; fi
 
-  get_pass "Password to access ${safe_ix}: " ; printf "\n"
+  promptPassword "Password to access ${safe_ix}: "
 
   printf '%s\n' "${userpass}" | \
     encrypt "${password}" "${spath}" - || \
       fail "Failed saving ${spath}"
 
-  ( if [[ -f "${safe_ix}" ]] ; then
-      decrypt "${password}" "${safe_ix}" || return ; fi
-    printf "%s@%s:%s\n" "${username}" "${now}" "${spath}") | \
-    encrypt "${password}" "${safe_ix}.${now}" - && \
-      mv "${safe_ix}.${now}" "${safe_ix}" || \
-        fail "Failed saving ${safe_ix}.${now}"
+  { if [[ -f "${safe_ix}" ]]; then
+      decrypt "${password}" "${safe_ix}" || return
+    fi
+    printf "%s@%s:%s\n" "${username}" "${now}" "${spath}"
+  } | encrypt "${password}" "${safe_ix}.${now}" -
+
+  if ! mv "${safe_ix}.${now}" "${safe_ix}"; then
+    fail "Failed saving ${safe_ix}.${now}" ; fi
 }
 
-list_entry() {
-  # Decrypt the index to list entries.
+listSecrets() {
+  # Decrypt the index to list secrets.
 
-  if [[ ! -s "${safe_ix}" ]] ; then fail "${safe_ix} not found" ; fi
-  get_pass "Password to access ${safe_ix}: " ; printf "\n\n"
-  decrypt "${password}" "${safe_ix}" || fail "${safe_ix} not available"
+  verifyIndex
+
+  promptPassword "Password to access ${safe_ix}: "
+  decrypt "${password}" "${safe_ix}" || \
+    fail "${safe_ix} not available"
 }
 
 backup() {
   # Archive index, safe and configuration.
 
+  gpg_conf_copy="${app}.gpg.conf"
   if [[ ! -f "${safe_backup}" ]] ; then
     if [[ -f "${safe_ix}" && -d "${safe_dir}" ]] ; then
-      cp "${gpg_conf}" "gpg.conf.${today}"
-      tar cf "${safe_backup}" "${safe_dir}" "${safe_ix}" \
-        "${BASH_SOURCE}" "gpg.conf.${today}" && \
-          printf "\nArchived %s\n" "${safe_backup}"
-      rm -f "gpg.conf.${today}"
+      cp "${gpg_conf}" "${gpg_conf_copy}"
+      tar cvf "${safe_backup}" "${safe_dir}" "${safe_ix}" \
+        "${BASH_SOURCE}" "${gpg_conf_copy}" ||
+          fail "Failed archiving to ${safe_backup}"
+        final "Archived ${safe_backup}"
     else fail "Nothing to archive" ; fi
-  else warn "${safe_backup} exists, skipping archive" ; fi
+  else fail "Skipping archive - ${safe_backup} exists" ; fi
 }
 
-emit_pass() {
-  # Use clipboard or stdout and clear after timeout.
+revealPass() {
+  # Reveal secret to clipboard or stdout and
+  # clear after timeout.
 
   if [[ "${clip_dest}" = "screen" ]] ; then
-    printf '\n%s\n' "$(cat ${1})"
+    printf '\n%s\n' "$(cat "${1}")"
   else ${clip_cmd} < "${1}" ; fi
 
   printf "\n"
   while [[ "${clip_timeout}" -gt 0 ]] ; do
-    printf "\r\033[K  Password on %s! Clearing in %.d" \
+    printf "\r\033[KSecret on %s! Clearing in %.d" \
       "${clip_dest}" "$((clip_timeout--))" ; sleep 1
   done
-  printf "\r\033[K  Clearing password from %s ..." "${clip_dest}"
+  printf "\r\033[KClearing password from %s ..." \
+    "${clip_dest}"
 
   if [[ "${clip_dest}" = "screen" ]] ; then clear
   else printf "\n" ; printf "" | ${clip_cmd} ; fi
 }
 
-new_entry() {
+newSecret() {
   # Prompt for username and password.
 
-  if [[ -z "${2+x}" ]] ; then read -r -p "
-  Username (Enter to generate): " username
+  if [[ -z "${2+x}" ]] ; then read -r -p \
+    "Username (Enter to generate): " username
   else username="${2}" ; fi
 
   if [[ -z "${username}" ]] ; then
-    username=$(generate_user "$@") ; fi
+    username=$(generateUsername "$@") ; fi
 
   if [[ -z "${3+x}" ]] ; then
-    get_pass "Password for \"${username}\" (Enter to generate): "
-    userpass="${password}"
-  fi
+    promptPassword "Secret for \"${username}\" (Enter to generate): "
+    userpass="${password}" ; fi
 
-  printf "\n"
   if [[ -z "${password}" ]] ; then
-    userpass=$(generate_pass "$@") ; fi
+    userpass=$(generateSecret "$@") ; fi
 }
 
-print_help() {
-  # Print help text.
+verifyIndex() {
+  # Verify the index file exists and is non-empty.
 
+  [[ -s "${safe_ix}" ]] || fail "${safe_ix} not found"
+}
+
+printHelp() {
   printf """
   pwd.sh is a Bash shell script to manage passwords and other text-based secrets.\n
   It uses GnuPG to symmetrically (i.e., using a master password) encrypt and decrypt plaintext files.\n
@@ -285,14 +299,14 @@ initGnuPG() {
   [[ -f "${gpg_conf}" ]] || fail "GnuPG config not available"
 }
 
-initSafeDir() {
+initStorage() {
   if [[ ! -d "${safe_dir}" ]] ; then mkdir -p "${safe_dir}" ; fi
+  chmod -R 0700 "${pepper}" "${safe_dir}" "${safe_ix}" 2>/dev/null
 }
 
 initPepper() {
   if [[ -n "${pepper}" && ! -f "${pepper}" ]] ; then
     generatePepper ; fi
-  chmod -R 0700 "${pepper}" "${safe_dir}" "${safe_ix}" 2>/dev/null
   if [[ -f "${pepper}" ]] ; then
     pep="$(cat "${pepper}")" ; else pep="" ; fi
 }
@@ -306,28 +320,28 @@ initClipboard() {
 }
 
 initGnuPG
-initSafeDir
+initStorage
 initPepper
 initClipboard
 
 username=""
 password=""
-action=""
+activity=""
 
-if [[ -n "${1+x}" ]] ; then action="${1}" ; fi
+if [[ -n "${1+x}" ]] ; then activity="${1}" ; fi
 
-while [[ -z "${action}" ]] ; do read -r -n 1 -p "
-  Read or Write (or Help for more options): " action
+while [[ -z "${activity}" ]] ; do read -r -n 1 -p \
+  "Read, Write, List (Help for more options): " activity
   printf "\n"
 done
 
-if [[ "${action}" =~ ^([rR])$ ]] ; then read_pass "$@"
-elif [[ "${action}" =~ ^([wW])$ ]] ; then
-  new_entry "$@"
-  write_pass
-  if [[ -n "${daily_backup}" ]] ; then backup ; fi
-elif [[ "${action}" =~ ^([lL])$ ]] ; then list_entry
-elif [[ "${action}" =~ ^([bB])$ ]] ; then backup
-else print_help ; fi
+if   [[ "${activity}" =~ ^([rR])$ ]] ; then readSecret "$@"
+elif [[ "${activity}" =~ ^([lL])$ ]] ; then listSecrets
+elif [[ "${activity}" =~ ^([wW])$ ]] ; then
+  newSecret "$@"
+  writeSecret
+  if [[ -n "${daily_backup}" ]]      ; then backup ; fi
+elif [[ "${activity}" =~ ^([bB])$ ]] ; then backup
+else printHelp ; fi
 
 final "Done"
