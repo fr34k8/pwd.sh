@@ -16,19 +16,26 @@ gpg_conf="${gpg_dir}/gpg.conf"
 now="$(date +%s)"
 today="$(date +%F)"
 
-clip="${PWDSH_CLIP:=xclip}"           # clipboard, 'pbcopy' on macOS
+vers="v4"
+name="$(basename "$0")"
+app="${vers}-${name}"
+
+pepper="${PWDSH_PEPPER:=${app}.pepper}"  # pepper file
+safe_dir="${PWDSH_SAFE:=${app}.secret}"  # safe directory
+safe_ix="${PWDSH_INDEX:=${app}.index}"   # index file
+backup="${app}.$(hostname).${today}.tar" # backup archive
+safe_backup="${PWDSH_BACKUP:=${backup}}"
+
+clip_cmd="${PWDSH_CLIP:=xclip}"       # clipboard, 'pbcopy' on macOS
 clip_args="${PWDSH_CLIP_ARGS:=}"      # args to pass to clip command
 clip_dest="${PWDSH_DEST:=clipboard}"  # cb type, 'screen' for stdout
 clip_timeout="${PWDSH_TIME:=10}"      # seconds to clear cb/screen
-comment="${PWDSH_COMMENT:=}"          # *unencrypted* comment in files
 daily_backup="${PWDSH_DAILY:=}"       # daily backup archive on write
 pass_copy="${PWDSH_COPY:=}"           # copy password before write
 pass_echo="${PWDSH_ECHO:=*}"          # show "*" when typing passwords
-pass_len="${PWDSH_LEN:=14}"           # default password length
-pepper="${PWDSH_PEPPER:=}"            # additional secret file name
-safe_dir="${PWDSH_SAFE:=safe}"        # safe directory name
-safe_ix="${PWDSH_INDEX:=pwd.index}"   # index file name
-safe_backup="${PWDSH_BACKUP:=pwd.$(hostname).${today}.tar}"
+pass_len="${PWDSH_LEN:=20}"           # default password length
+pub_comment="${PWDSH_PUBCOMMENT:=}"   # public/plaintext file comment
+
 pass_chars="${PWDSH_CHARS:='[:alnum:]!?@#$%^&*();:+='}"
 
 trap cleanup EXIT INT TERM
@@ -69,7 +76,7 @@ warn() {
   tput sgr0
 }
 
-generate_pepper() {
+generatePepper() {
   # Generate, display and save "pepper" secret value.
 
   warn "created ${pepper} - copy to secure storage:"
@@ -112,7 +119,7 @@ decrypt() {
 encrypt() {
   # Encrypt with GPG.
 
-  ${gpg} --armor --batch --comment "${comment}" \
+  ${gpg} --armor --batch --comment "${pub_comment}" \
     --symmetric --yes --passphrase-fd 3 \
     --output "${2}" "${3}" 3< \
     <(printf "%s" "${1}${pep}") 2>/dev/null
@@ -214,7 +221,7 @@ emit_pass() {
 
   if [[ "${clip_dest}" = "screen" ]] ; then
     printf '\n%s\n' "$(cat ${1})"
-  else ${clip} < "${1}" ; fi
+  else ${clip_cmd} < "${1}" ; fi
 
   printf "\n"
   while [[ "${clip_timeout}" -gt 0 ]] ; do
@@ -224,7 +231,7 @@ emit_pass() {
   printf "\r\033[K  Clearing password from %s ..." "${clip_dest}"
 
   if [[ "${clip_dest}" = "screen" ]] ; then clear
-  else printf "\n" ; printf "" | ${clip} ; fi
+  else printf "\n" ; printf "" | ${clip_cmd} ; fi
 }
 
 new_entry() {
@@ -291,7 +298,7 @@ initPepper() {
 }
 
 initClipboard() {
-  if [[ -z "$(command -v "${clip}")" ]] ; then
+  if [[ -z "$(command -v "${clip_cmd}")" ]] ; then
     warn "clipboard not available - secrets will appear on screen/stdout!"
     clip_dest="screen"
   elif [[ -n "${clip_args}" ]] ; then
