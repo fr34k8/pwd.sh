@@ -70,14 +70,13 @@ warn() {
 }
 
 generate_pepper() {
-  # Generate pepper, avoid ambiguous characters.
+  # Generate, display and save "pepper" secret value.
 
-  warn "${pepper} created"
-  printf "%s" "$(tr -dc 'A-Z1-9' < /dev/urandom | \
-    tr -d "1IOS5U" | fold -w 30 | sed "-es/./ /"{1..26..5} | \
-    cut -c2- | tr " " "-" | head -1)" | \
-    tee "${pepper}" || fail "Failed to create ${pepper}"
-  printf "\n"
+  warn "created ${pepper} - copy to secure storage:"
+  printf "%s\n" \
+    "$(tr -dc 'A-Y2-9' < /dev/urandom | tr -d "IOS5UB" | \
+    fold -w 6 | paste -sd - - | head -c 27)" | \
+  tee "${pepper}" || fail "Failed writing ${pepper}"
 }
 
 get_pass() {
