@@ -20,11 +20,11 @@ vers="v4"
 name="$(basename "$0")"
 app="${vers}-${name}"
 
-pepper="${PWDSH_PEPPER:=${app}.pepper}"  # pepper file
+backup="${app}.$(hostname).${today}.tar"
+safe_backup="${PWDSH_BACKUP:=${backup}}" # backup archive
 safe_dir="${PWDSH_SAFE:=${app}.secret}"  # safe directory
 safe_ix="${PWDSH_INDEX:=${app}.index}"   # index file
-backup="${app}.$(hostname).${today}.tar" # backup archive
-safe_backup="${PWDSH_BACKUP:=${backup}}"
+pepper="${PWDSH_PEPPER:=}"               # optional pepper file
 
 clip_cmd="${PWDSH_CLIP:=xclip}"       # clipboard, 'pbcopy' on macOS
 clip_args="${PWDSH_CLIP_ARGS:=}"      # args to pass to clip command
@@ -313,7 +313,7 @@ initPepper() {
 
 initClipboard() {
   if [[ -z "$(command -v "${clip_cmd}")" ]] ; then
-    warn "clipboard not available - secrets will appear on screen/stdout!"
+    warn "Clipboard not available - secrets will appear on screen/stdout!"
     clip_dest="screen"
   elif [[ -n "${clip_args}" ]] ; then
     clip+=" ${clip_args}" ; fi
@@ -342,6 +342,12 @@ elif [[ "${activity}" =~ ^([wW])$ ]] ; then
   writeSecret
   if [[ -n "${daily_backup}" ]]      ; then backup ; fi
 elif [[ "${activity}" =~ ^([bB])$ ]] ; then backup
+elif [[ "${activity}" =~ ^([uU])$ ]] ; then
+  final "Username: $(generateUsername)"
+elif [[ "${activity}" =~ ^([sS])$ ]] ; then
+  final "Secret: $(generateSecret)"
+elif [[ "${activity}" =~ ^([vV])$ ]] ; then
+  final "Version: ${app}"
 else printHelp ; fi
 
 final "Done"
