@@ -271,27 +271,27 @@ verifyIndex() {
 }
 
 printHelp() {
-  printf """
-  pwd.sh is a Bash shell script to manage passwords and other text-based secrets.\n
-  It uses GnuPG to symmetrically (i.e., using a master password) encrypt and decrypt plaintext files.\n
-  Each password is encrypted as a unique, randomly-named file in the 'safe' directory. An encrypted index is used to map usernames to the respective password file. Both the index and password files can also be decrypted directly with GnuPG without this script.\n
-  Run the script interactively using ./pwd.sh or symlink to a directory in PATH:
-    * 'w' to write a password
-    * 'r' to read a password
-    * 'l' to list passwords
-    * 'b' to create an archive for backup\n
-  Options can also be passed on the command line.\n
-  * Create a 20-character password for userName:
-    ./pwd.sh w userName 20\n
-  * Read password for userName:
-    ./pwd.sh r userName\n
-  * Passwords are stored with an epoch timestamp for revision control. The most recent version is copied to clipboard on read. To list all passwords or read a specific version of a password:
-    ./pwd.sh l
-    ./pwd.sh r userName@1574723625\n
-  * Create an archive for backup:
-    ./pwd.sh b\n
-  * Restore an archive from backup:
-    tar xvf pwd*tar\n"""
+  printf '%s\n' """Available options:
+  r - read (access) a secret
+  w - write (create) a secret
+  l - list all secret names and paths
+  b - archive materials for backup
+  s - generate a random secret value
+  u - generate a random username
+  v - print script version
+  h - print help text
+
+  Write 20-character secret for 'userName'
+    ./pwd.sh w userName 20
+
+  Read secret for 'userName'
+    ./pwd.sh r userName
+
+  Read version of secret for 'usernName'
+    ./pwd.sh r userName@1574723625
+
+  Create an archive for backup
+    ./pwd.sh b"""
 }
 
 initGnuPG() {
@@ -319,35 +319,51 @@ initClipboard() {
     clip+=" ${clip_args}" ; fi
 }
 
-initGnuPG
-initStorage
-initPepper
-initClipboard
+initOps() {
+  initGnuPG
+  initStorage
+  initPepper
+  initClipboard
+}
 
-username=""
-password=""
 activity=""
-
 if [[ -n "${1+x}" ]] ; then activity="${1}" ; fi
-
 while [[ -z "${activity}" ]] ; do read -r -n 1 -p \
-  "Read, Write, List (Help for more options): " activity
+  "Available options:
+  [W]rite, [R]read or [L]ist secrets
+  Generate [S]ecret or [U]sername values
+  Archive materials for [B]ackup
+  Print app [V]ersion or [H]elp information
+Select an option: " activity
   printf "\n"
 done
 
-if   [[ "${activity}" =~ ^([rR])$ ]] ; then readSecret "$@"
-elif [[ "${activity}" =~ ^([lL])$ ]] ; then listSecrets
-elif [[ "${activity}" =~ ^([wW])$ ]] ; then
-  newSecret "$@"
-  writeSecret
-  if [[ -n "${daily_backup}" ]]      ; then backup ; fi
-elif [[ "${activity}" =~ ^([bB])$ ]] ; then backup
+if [[ "${activity}" =~ ^([bB])$ ]] ; then
+  backup
+elif [[ "${activity}" =~ ^([hH])$ ]] ; then
+  final "$(printHelp)"
 elif [[ "${activity}" =~ ^([uU])$ ]] ; then
   final "Username: $(generateUsername)"
 elif [[ "${activity}" =~ ^([sS])$ ]] ; then
-  final "Secret: $(generateSecret)"
+  final "Secret: $(generateSecret $@)"
 elif [[ "${activity}" =~ ^([vV])$ ]] ; then
-  final "Version: ${app}"
-else printHelp ; fi
+  final "Version: ${app}" ; fi
+
+initOps
+
+username=""
+password=""
+
+if [[ "${activity}" =~ ^([rR])$ ]] ; then
+  readSecret "$@"
+elif [[ "${activity}" =~ ^([lL])$ ]] ; then
+  listSecrets
+elif [[ "${activity}" =~ ^([wW])$ ]] ; then
+  newSecret "$@"
+  writeSecret
+  if [[ -n "${daily_backup}" ]] ; then
+    backup ; fi
+else
+  fail "Invalid option selected" ; fi
 
 final "Done"
