@@ -7,11 +7,12 @@ set -o nounset
 set -o pipefail
 
 umask 077
+
 export LC_ALL="C"
 
-gpg="$(command -v gpg || command -v gpg2)"
-gpg_dir="${HOME}/.gnupg"
-gpg_conf="${gpg_dir}/gpg.conf"
+gpgBin="$(command -v gpg || command -v gpg2)"
+gpgPath="${HOME}/.gnupg"
+gpgConf="${gpgPath}/gpg.conf"
 
 now="$(date +%s)"
 today="$(date +%F)"
@@ -20,30 +21,34 @@ vers="v4"
 name="$(basename "$0")"
 app="${vers}-${name}"
 
-backup="${app}.$(hostname).${today}.tar"
-safe_backup="${PWDSH_BACKUP:=${backup}}" # backup archive
-safe_dir="${PWDSH_SAFE:=${app}.secret}"  # safe directory
-safe_ix="${PWDSH_INDEX:=${app}.index}"   # index file
-pepper="${PWDSH_PEPPER:=}"               # optional pepper file
+backupFname="${app}.$(hostname).${today}.tar" # backup archive
+backupStore="${PWDSH_BACKUP_NAME:=${backupFname}}"
+backupDaily="${PWDSH_BACKUP_DAILY:=}" # daily archive on write
 
-clip_cmd="${PWDSH_CLIP:=xclip}"       # clipboard, 'pbcopy' on macOS
-clip_args="${PWDSH_CLIP_ARGS:=}"      # args to pass to clip command
-clip_dest="${PWDSH_DEST:=clipboard}"  # cb type, 'screen' for stdout
-clip_timeout="${PWDSH_TIME:=10}"      # seconds to clear cb/screen
-daily_backup="${PWDSH_DAILY:=}"       # daily backup archive on write
-pass_copy="${PWDSH_COPY:=}"           # copy password before write
-pass_echo="${PWDSH_ECHO:=*}"          # show "*" when typing passwords
-pass_len="${PWDSH_LEN:=20}"           # default password length
-pub_comment="${PWDSH_PUBCOMMENT:=}"   # public/plaintext file comment
+secretStore="${PWDSH_STORE:=${app}.secret}" # secretsdirectory
+secretIndex="${PWDSH_INDEX:=${app}.index}"  # index file
+secretPepper="${PWDSH_PEPPER:=}"            # optional pepper file
 
-pass_chars="${PWDSH_CHARS:='[:alnum:]!?@#$%^&*();:+='}"
+clipCmd="${PWDSH_CLIP_CMD:=xclip}"     # clipboard, 'pbcopy' on macOS
+clipArg="${PWDSH_CLIP_ARG:=}"          # args to pass to clip command
+clipOut="${PWDSH_CLIP_OUT:=clipboard}" # cb type, 'screen' for stdout
+clipSec="${PWDSH_CLIP_SEC:=10}"        # seconds to clear cb/screen
+
+optCopyBeforeWrite="${PWDSH_COPY:=}"  # copy secret before write
+optDictionaryWords="${PWDSH_DICT:=/usr/share/dict/words}"
+optSecretEchoChars="${PWDSH_ECHO:=*}" # echo "*" when typing passwords
+optSecretLength="${PWDSH_LEN:=20}"    # default secret length
+optPublicComment="${PWDSH_COMMENT:=}" # public/plaintext file comment
+optSecretChars="${PWDSH_CHAR:='A-Za-z0-9!@#$%^&*()_+'}"
 
 trap cleanup EXIT INT TERM
 cleanup() {
   # "Lock" files on trapped exits.
 
   ret=$?
-  chmod -R 0000 "${pepper}" "${safe_dir}" "${safe_ix}" 2>/dev/null
+  chmod -R 0000 "${secretPepper}" \
+                "${secretStore}" \
+                "${secretIndex}" 2>/dev/null
   exit ${ret}
 }
 
@@ -53,37 +58,29 @@ timestamp() {
   date +"%A %b %d %H:%M:%S"
 }
 
-fail() {
-  # Print error message in red and exit with failure.
+log() {
+  # Print formatted and timestamped events.
 
-  tput setaf 1 ; printf "($(timestamp)) %s\n" "${1}" ; \
-  tput sgr0
-  exit 1
-}
+  local color="${1}"
+  shift
 
-final() {
-  # Print final message in green and exit with success.
-
-  tput setaf 2 ; printf "($(timestamp)) %s\n" "${1}" ; \
-  tput sgr0
-  exit 0
-}
-
-warn() {
-  # Print warning message in yellow.
-
-  tput setaf 3 ; printf "WARNING: %s\n" "${1}" ; \
+  tput setaf "${color}"
+  printf '(%s) %s\n' "$(timestamp)" "$*"
   tput sgr0
 }
+
+fail()  { log 1 "$@"; exit 1; }
+final() { log 2 "$@"; exit 0; }
+warn()  { log 3 "$@"; }
 
 generatePepper() {
   # Generate, display and save "pepper" secret value.
 
-  warn "created ${pepper} - copy to secure storage:"
+  warn "created ${secretPepper} - copy to secure storage:"
   printf "%s\n" \
     "$(tr -dc 'A-Y2-9' < /dev/urandom | tr -d "IOS5UB" | \
     fold -w 6 | paste -sd - - | head -c 27)" | \
-  tee "${pepper}" || fail "Failed writing ${pepper}"
+  tee "${secretPepper}" || fail "Failed writing ${secretPepper}"
 }
 
 promptPassword() {
@@ -101,7 +98,7 @@ promptPassword() {
         password="${password%?}"
       fi
     else
-      prompt="${pass_echo}"
+      prompt="${optSecretEchoChars}"
       password+="${char}"
     fi
   done
@@ -112,8 +109,8 @@ promptPassword() {
 decrypt() {
   # Decrypt with GPG.
 
-  printf "%s" "${1}${pep}" | \
-    ${gpg} --armor --batch \
+  printf "%s" "${1}${pepperSecret}" | \
+    ${gpgBin} --armor --batch \
     --decrypt --no-symkey-cache \
     --passphrase-fd 0 \
     "${2}" 2>/dev/null
@@ -122,16 +119,16 @@ decrypt() {
 encrypt() {
   # Encrypt with GPG.
 
-  ${gpg} --armor --batch --yes \
+  ${gpgBin} --armor --batch --yes \
     --symmetric \
-    --comment "${pub_comment}" \
+    --comment "${optPublicComment}" \
     --passphrase-fd 3 \
     --output "${2}" "${3}" 3< \
-    <(printf "%s" "${1}${pep}") 2>/dev/null
+    <(printf "%s" "${1}${pepperSecret}") 2>/dev/null
 }
 
 readSecret() {
-  # Read a secret from safe.
+  # Decrypt to read a secret.
 
   verifyIndex
 
@@ -141,10 +138,10 @@ readSecret() {
     else username="${2}" ; fi
   done
 
-  promptPassword "Password to access ${safe_ix}: "
+  promptPassword "Password to access ${secretIndex}: "
 
-  spath=$(decrypt "${password}" "${safe_ix}" | \
-    grep -F "${username}" | tail -1 | cut -d ":" -f2) || \
+  spath=$(decrypt "${password}" "${secretIndex}" | \
+    grep -F "${username}" | tail -1 | cut -d ":" -f 2) || \
       fail "Secret not available"
 
   revealPass <(decrypt "${password}" "${spath}") || \
@@ -155,95 +152,107 @@ generateSecret() {
   # Generate a secret from urandom.
 
   if [[ -z "${3+x}" ]] ; then read -r -p \
-    "Secret length (default: ${pass_len}): " length
+    "Secret length (Enter for ${optSecretLength}): " length
   else length="${3}" ; fi
 
   if [[ "${length}" =~ ^[0-9]+$ ]] ; then
-    pass_len="${length}" ; fi
+    optSecretLength="${length}" ; fi
 
-  tr -dc "${pass_chars}" < /dev/urandom | \
-    fold -w "${pass_len}" | head -1
+  tr -dc "${optSecretChars}" < /dev/urandom | \
+    head -c "${optSecretLength}"
 }
 
 generateUsername() {
-  # Generate a username.
+  # Generate a random username.
 
-  printf "%s%s\n" \
-    "$(awk 'length > 2 && length < 12 {print(tolower($0))}' \
-    /usr/share/dict/words | grep -v "'" | sort -R | head -n2 | \
-    tr "\n" "-" | iconv -f utf-8 -t ascii//TRANSLIT)" \
-    "$(tr -dc "[:digit:]" < /dev/urandom | fold -w 3 | head -1)"
+  countDigits=3
+  countWords=2
+
+  words=$(awk '
+    length > 2 && length < 12 &&
+    index($0, "'"'"'") == 0 { print tolower($0) }' \
+    ${optDictionaryWords} | sort -R | head -n ${countWords} | \
+    tr '\n' '-' | tr -cd 'a-z0-9-\n'
+  )
+  digits=$(tr -dc '0-9' < /dev/urandom | head -c ${countDigits})
+  printf '%s%s\n' "${words}" "${digits}"
 }
 
 writeSecret() {
   # Write a secret and update the index.
 
-  sname="$(tr -dc "[:lower:]" < /dev/urandom | \
-    fold -w 10 | head -1)"
-  spath="${safe_dir}/${app}.${sname}"
+  sname="$(tr -dc 'a-z' < /dev/urandom | head -c 10)"
+  spath="${secretStore%/}/${app}.${sname}"
 
-  if [[ -n "${pass_copy}" ]] ; then
+  if [[ -n "${optCopyBeforeWrite}" ]] ; then
     revealPass <(printf '%s' "${userpass}") ; fi
 
-  promptPassword "Password to access ${safe_ix}: "
+  promptPassword "Password to access ${secretIndex}: "
 
   printf '%s\n' "${userpass}" | \
     encrypt "${password}" "${spath}" - || \
       fail "Failed saving ${spath}"
 
-  { if [[ -f "${safe_ix}" ]]; then
-      decrypt "${password}" "${safe_ix}" || return
+  { if [[ -s "${secretIndex}" ]]; then
+      decrypt "${password}" "${secretIndex}" || return
     fi
     printf "%s@%s:%s\n" "${username}" "${now}" "${spath}"
-  } | encrypt "${password}" "${safe_ix}.${now}" -
+  } | encrypt "${password}" "${secretIndex}.${now}" -
 
-  if ! mv "${safe_ix}.${now}" "${safe_ix}"; then
-    fail "Failed saving ${safe_ix}.${now}" ; fi
+  if ! mv "${secretIndex}.${now}" "${secretIndex}"; then
+    fail "Failed saving ${secretIndex}.${now}" ; fi
 }
 
 listSecrets() {
   # Decrypt the index to list secrets.
 
   verifyIndex
-
-  promptPassword "Password to access ${safe_ix}: "
-  decrypt "${password}" "${safe_ix}" || \
-    fail "${safe_ix} not available"
+  promptPassword "Password to access ${1}: "
+  decrypt "${password}" "${1}" || \
+    fail "${1} not available"
 }
 
 backup() {
-  # Archive index, safe and configuration.
+  # Archive index, store and GPG configuration.
 
-  gpg_conf_copy="${app}.gpg.conf"
-  if [[ ! -f "${safe_backup}" ]] ; then
-    if [[ -f "${safe_ix}" && -d "${safe_dir}" ]] ; then
-      cp "${gpg_conf}" "${gpg_conf_copy}"
-      tar cvf "${safe_backup}" "${safe_dir}" "${safe_ix}" \
-        "${BASH_SOURCE}" "${gpg_conf_copy}" ||
-          fail "Failed archiving to ${safe_backup}"
-        final "Archived ${safe_backup}"
-    else fail "Nothing to archive" ; fi
-  else fail "Skipping archive - ${safe_backup} exists" ; fi
+  gpgConfCopy="${app}.gpg.conf"
+
+  if [[ -s "${backupStore}" ]] ; then
+    fail "Skipping archive - '${backupStore}' exists" ; fi
+
+  if [[ ! -s "${secretIndex}" &&
+        ! -d "${secretStore}" ]] ; then
+    fail "Nothing to archive" ; fi
+
+  cp "${gpgConf}" "${gpgConfCopy}"
+  tar cvf "${backupStore}" \
+    "${secretStore}" "${secretIndex}" \
+    "${BASH_SOURCE}" "${gpgConfCopy}" ||
+    fail "Failed archiving to ${backupStore}"
+
+  final "Archived ${backupStore}"
 }
 
 revealPass() {
   # Reveal secret to clipboard or stdout and
   # clear after timeout.
 
-  if [[ "${clip_dest}" = "screen" ]] ; then
+  if [[ "${clipOut}" = "screen" ]] ; then
     printf '\n%s\n' "$(cat "${1}")"
-  else ${clip_cmd} < "${1}" ; fi
+  else ${clipCmd} < "${1}" ; fi
 
   printf "\n"
-  while [[ "${clip_timeout}" -gt 0 ]] ; do
+  while [[ "${clipSec}" -gt 0 ]] ; do
     printf "\r\033[KSecret on %s! Clearing in %.d" \
-      "${clip_dest}" "$((clip_timeout--))" ; sleep 1
+      "${clipOut}" "$((clipSec--))" ; sleep 1
   done
-  printf "\r\033[KClearing password from %s ..." \
-    "${clip_dest}"
 
-  if [[ "${clip_dest}" = "screen" ]] ; then clear
-  else printf "\n" ; printf "" | ${clip_cmd} ; fi
+  printf "\r\033[KClearing password from %s ..." \
+    "${clipOut}"
+
+  if [[ "${clipOut}" = "screen" ]] ; then
+    clear
+  else printf "\n" ; printf "" | ${clipCmd} ; fi
 }
 
 newSecret() {
@@ -257,7 +266,7 @@ newSecret() {
     username=$(generateUsername "$@") ; fi
 
   if [[ -z "${3+x}" ]] ; then
-    promptPassword "Secret for \"${username}\" (Enter to generate): "
+    promptPassword "Secret for '${username}' (Enter to generate): "
     userpass="${password}" ; fi
 
   if [[ -z "${password}" ]] ; then
@@ -267,7 +276,7 @@ newSecret() {
 verifyIndex() {
   # Verify the index file exists and is non-empty.
 
-  [[ -s "${safe_ix}" ]] || fail "${safe_ix} not found"
+  [[ -s "${secretIndex}" ]] || fail "${secretIndex} not found"
 }
 
 printHelp() {
@@ -295,28 +304,36 @@ printHelp() {
 }
 
 initGnuPG() {
-  [[ -n "${gpg}" ]]      || fail "GnuPG binary not available"
-  [[ -f "${gpg_conf}" ]] || fail "GnuPG config not available"
+  [[ -n "${gpgBin}" ]]  || fail "GnuPG binary not available"
+  [[ -s "${gpgConf}" ]] || fail "GnuPG config not available"
 }
 
 initStorage() {
-  if [[ ! -d "${safe_dir}" ]] ; then mkdir -p "${safe_dir}" ; fi
-  chmod -R 0700 "${pepper}" "${safe_dir}" "${safe_ix}" 2>/dev/null
+  if [[ ! -d "${secretStore}" ]] ; then
+    mkdir -p "${secretStore}" ; fi
+  chmod -R 0700 "${secretPepper}" \
+                "${secretIndex}" \
+                "${secretStore}" 2>/dev/null
 }
 
 initPepper() {
-  if [[ -n "${pepper}" && ! -f "${pepper}" ]] ; then
+  pepperSecret=""
+
+  if [[ -n "${secretPepper}" && \
+      ! -s "${secretPepper}" ]] ; then
     generatePepper ; fi
-  if [[ -f "${pepper}" ]] ; then
-    pep="$(cat "${pepper}")" ; else pep="" ; fi
+
+  if [[ -s "${secretPepper}" ]] ; then
+    pepperSecret="$(cat "${secretPepper}")" ; fi
 }
 
 initClipboard() {
-  if [[ -z "$(command -v "${clip_cmd}")" ]] ; then
-    warn "Clipboard not available - secrets will appear on screen/stdout!"
-    clip_dest="screen"
-  elif [[ -n "${clip_args}" ]] ; then
-    clip+=" ${clip_args}" ; fi
+  if [[ -z "$(command -v "${clipCmd}")" ]] ; then
+    clipOut="screen"
+    warn "Clipboard not available -" \
+         "secrets will appear on screen/stdout!"
+  elif [[ -n "${clipArg}" ]] ; then
+    clipCmd+=" ${clipArg}" ; fi
 }
 
 initOps() {
@@ -357,11 +374,12 @@ password=""
 if [[ "${activity}" =~ ^([rR])$ ]] ; then
   readSecret "$@"
 elif [[ "${activity}" =~ ^([lL])$ ]] ; then
-  listSecrets
+  listSecrets "${secretIndex}"
+  final "Listed ${secretIndex}"
 elif [[ "${activity}" =~ ^([wW])$ ]] ; then
   newSecret "$@"
   writeSecret
-  if [[ -n "${daily_backup}" ]] ; then
+  if [[ -n "${backupDaily}" ]] ; then
     backup ; fi
 else
   fail "Invalid option selected" ; fi
