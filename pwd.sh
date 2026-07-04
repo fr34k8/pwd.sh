@@ -218,11 +218,14 @@ backup() {
   gpgConfCopy="${app}.gpg.conf"
 
   if [[ -s "${backupStore}" ]] ; then
-    fail "Skipping archive - '${backupStore}' exists" ; fi
+    fail "Backup failed - '${backupStore}' exists" ; fi
 
-  if [[ ! -s "${secretIndex}" &&
-        ! -d "${secretStore}" ]] ; then
-    fail "Nothing to archive" ; fi
+  if [[ ! -s "${secretIndex}" ]] ; then
+    fail "No index to backup" ; fi
+
+  if ! find "${secretStore}" -mindepth 1 -print -quit | \
+    grep -q "." ; then
+    fail "No secrets to backup" ; fi
 
   cp "${gpgConf}" "${gpgConfCopy}"
   tar cvf "${backupStore}" \
@@ -328,7 +331,7 @@ initPepper() {
 }
 
 initClipboard() {
-  if [[ -z "$(command -v "${clipCmd}")" ]] ; then
+  if ! command -v "${clipCmd}" >/dev/null 2>&1; then
     clipOut="screen"
     warn "Clipboard not available -" \
          "secrets will appear on screen/stdout!"
@@ -347,7 +350,7 @@ activity=""
 if [[ -n "${1+x}" ]] ; then activity="${1}" ; fi
 while [[ -z "${activity}" ]] ; do read -r -n 1 -p \
   "Available options:
-  [W]rite, [R]read or [L]ist secrets
+  [W]rite, [R]ead or [L]ist secrets
   Generate [S]ecret or [U]sername values
   Archive materials for [B]ackup
   Print app [V]ersion or [H]elp information
@@ -355,9 +358,7 @@ Select an option: " activity
   printf "\n"
 done
 
-if [[ "${activity}" =~ ^([bB])$ ]] ; then
-  backup
-elif [[ "${activity}" =~ ^([hH])$ ]] ; then
+if [[ "${activity}" =~ ^([hH])$ ]] ; then
   final "$(printHelp)"
 elif [[ "${activity}" =~ ^([uU])$ ]] ; then
   final "Username: $(generateUsername)"
@@ -381,6 +382,8 @@ elif [[ "${activity}" =~ ^([wW])$ ]] ; then
   writeSecret
   if [[ -n "${backupDaily}" ]] ; then
     backup ; fi
+elif [[ "${activity}" =~ ^([bB])$ ]] ; then
+  backup
 else
   fail "Invalid option selected" ; fi
 
