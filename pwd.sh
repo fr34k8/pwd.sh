@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
 # https://github.com/drduh/pwd.sh/blob/master/pwd.sh
-
 #set -x  # uncomment to debug
 set -o errtrace
 set -o nounset
 set -o pipefail
 
 umask 077
-
 export LC_ALL="C"
+
+now="$(date +%s)"
+today="$(date +%F)"
 
 gpgBin="$(command -v gpg || command -v gpg2)"
 gpgPath="${HOME}/.gnupg"
 gpgConf="${gpgPath}/gpg.conf"
-
-now="$(date +%s)"
-today="$(date +%F)"
 
 vers="v4"
 name="$(basename "$0")"
@@ -25,14 +23,14 @@ backupFname="${app}.$(hostname).${today}.tar" # backup archive
 backupStore="${PWDSH_BACKUP_NAME:=${backupFname}}"
 backupDaily="${PWDSH_BACKUP_DAILY:=}" # daily archive on write
 
-secretStore="${PWDSH_STORE:=${app}.secret}" # secretsdirectory
-secretIndex="${PWDSH_INDEX:=${app}.index}"  # index file
+secretStore="${PWDSH_STORE:=${app}.secret}" # secrets storage directory
+secretIndex="${PWDSH_INDEX:=${app}.index}"  # secrets index file
 secretPepper="${PWDSH_PEPPER:=}"            # optional pepper file
 
 clipCmd="${PWDSH_CLIP_CMD:=xclip}"     # clipboard, 'pbcopy' on macOS
 clipArg="${PWDSH_CLIP_ARG:=}"          # args to pass to clip command
 clipOut="${PWDSH_CLIP_OUT:=clipboard}" # cb type, 'screen' for stdout
-clipSec="${PWDSH_CLIP_SEC:=10}"        # seconds to clear cb/screen
+clipSec="${PWDSH_CLIP_SEC:=10}"        # seconds until clipboard clear
 
 optCopyBeforeWrite="${PWDSH_COPY:=}"  # copy secret before write
 optDictionaryWords="${PWDSH_DICT:=/usr/share/dict/words}"
@@ -42,28 +40,21 @@ optPublicComment="${PWDSH_COMMENT:=}" # public/plaintext file comment
 optSecretChars="${PWDSH_CHAR:='A-Za-z0-9!@#$%^&*()_+'}"
 
 trap cleanup EXIT INT TERM
-cleanup() {
-  # "Lock" files on trapped exits.
-
+cleanup() { # "Lock" files on trapped exits.
   ret=$?
   chmod -R 0000 "${secretPepper}" \
                 "${secretStore}" \
                 "${secretIndex}" 2>/dev/null
-  exit ${ret}
+  exit "${ret}"
 }
 
-timestamp() {
-  # Format current date and time.
-
+timestamp() { # Format current date and time.
   date +"%A %b %d %H:%M:%S"
 }
 
-log() {
-  # Print formatted and timestamped events.
-
+log() { # Print formatted and timestamped events.
   local color="${1}"
   shift
-
   tput setaf "${color}"
   printf '(%s) %s\n' "$(timestamp)" "$*"
   tput sgr0
@@ -73,19 +64,15 @@ fail()  { log 1 "$@"; exit 1; }
 final() { log 2 "$@"; exit 0; }
 warn()  { log 3 "$@"; }
 
-generatePepper() {
-  # Generate, display and save "pepper" secret value.
-
-  warn "created ${secretPepper} - copy to secure storage:"
+generatePepper() { # Generate, display and save "pepper" secret value.
+  warn "Created '${secretPepper}' - copy to secure storage:"
   printf "%s\n" \
     "$(tr -dc 'A-Y2-9' < /dev/urandom | tr -d "IOS5UB" | \
     fold -w 6 | paste -sd - - | head -c 27)" | \
   tee "${secretPepper}" || fail "Failed writing ${secretPepper}"
 }
 
-promptPassword() {
-  # Prompt for a password.
-
+promptPassword() { # Prompt for a password.
   password=""
   prompt="${1}"
 
@@ -95,20 +82,16 @@ promptPassword() {
       if [[ -z "${password}" ]] ; then prompt=""
       else
         prompt=$'\b \b'
-        password="${password%?}"
-      fi
+        password="${password%?}" ; fi
     else
       prompt="${optSecretEchoChars}"
-      password+="${char}"
-    fi
+      password+="${char}" ; fi
   done
 
   printf "\n"
 }
 
-decrypt() {
-  # Decrypt with GPG.
-
+decrypt() { # Decrypt with GPG.
   printf "%s" "${1}${pepperSecret}" | \
     ${gpgBin} --armor --batch \
     --decrypt --no-symkey-cache \
@@ -116,9 +99,7 @@ decrypt() {
     "${2}" 2>/dev/null
 }
 
-encrypt() {
-  # Encrypt with GPG.
-
+encrypt() { # Encrypt with GPG.
   ${gpgBin} --armor --batch --yes \
     --symmetric \
     --comment "${optPublicComment}" \
@@ -127,9 +108,7 @@ encrypt() {
     <(printf "%s" "${1}${pepperSecret}") 2>/dev/null
 }
 
-readSecret() {
-  # Decrypt to read a secret.
-
+readSecret() { # Decrypt to read a secret.
   verifyIndex
 
   while [[ -z "${username}" ]] ; do
@@ -148,9 +127,7 @@ readSecret() {
     fail "Failed to decrypt ${spath}"
 }
 
-generateSecret() {
-  # Generate a secret from urandom.
-
+generateSecret() { # Generate a secret from urandom.
   if [[ -z "${3+x}" ]] ; then read -r -p \
     "Secret length (Enter for ${optSecretLength}): " length
   else length="${3}" ; fi
@@ -162,25 +139,23 @@ generateSecret() {
     head -c "${optSecretLength}"
 }
 
-generateUsername() {
-  # Generate a random username.
-
+generateUsername() { # Generate a random username.
   countDigits=3
   countWords=2
 
+  digits=$(tr -dc '0-9' < /dev/urandom | \
+    head -c ${countDigits})
   words=$(awk '
     length > 2 && length < 12 &&
     index($0, "'"'"'") == 0 { print tolower($0) }' \
-    ${optDictionaryWords} | sort -R | head -n ${countWords} | \
-    tr '\n' '-' | tr -cd 'a-z0-9-\n'
-  )
-  digits=$(tr -dc '0-9' < /dev/urandom | head -c ${countDigits})
+    "${optDictionaryWords}" | sort -R | \
+    head -n ${countWords} | \
+    tr '\n' '-' | tr -cd 'a-z0-9-\n')
+
   printf '%s%s\n' "${words}" "${digits}"
 }
 
-writeSecret() {
-  # Write a secret and update the index.
-
+writeSecret() { # Write a secret and update the index.
   sname="$(tr -dc 'a-z' < /dev/urandom | head -c 10)"
   spath="${secretStore%/}/${app}.${sname}"
 
@@ -203,18 +178,13 @@ writeSecret() {
     fail "Failed saving ${secretIndex}.${now}" ; fi
 }
 
-listSecrets() {
-  # Decrypt the index to list secrets.
-
+listSecrets() { # Decrypt the index to list secrets.
   verifyIndex
   promptPassword "Password to access ${1}: "
-  decrypt "${password}" "${1}" || \
-    fail "${1} not available"
+  decrypt "${password}" "${1}" || fail "${1} not available"
 }
 
-backup() {
-  # Archive index, store and GPG configuration.
-
+backup() { # Archive index, secret store and GPG configuration.
   gpgConfCopy="${app}.gpg.conf"
 
   if [[ -s "${backupStore}" ]] ; then
@@ -236,10 +206,7 @@ backup() {
   final "Archived ${backupStore}"
 }
 
-revealPass() {
-  # Reveal secret to clipboard or stdout and
-  # clear after timeout.
-
+revealPass() { # Reveal secret and clear after timeout.
   if [[ "${clipOut}" = "screen" ]] ; then
     printf '\n%s\n' "$(cat "${1}")"
   else ${clipCmd} < "${1}" ; fi
@@ -258,9 +225,7 @@ revealPass() {
   else printf "\n" ; printf "" | ${clipCmd} ; fi
 }
 
-newSecret() {
-  # Prompt for username and password.
-
+newSecret() { # Prompt for username and password.
   if [[ -z "${2+x}" ]] ; then read -r -p \
     "Username (Enter to generate): " username
   else username="${2}" ; fi
@@ -276,16 +241,14 @@ newSecret() {
     userpass=$(generateSecret "$@") ; fi
 }
 
-verifyIndex() {
-  # Verify the index file exists and is non-empty.
-
+verifyIndex() { # Verify the index file exists and is non-empty.
   [[ -s "${secretIndex}" ]] || fail "${secretIndex} not found"
 }
 
-printHelp() {
-  printf '%s\n' """Available options:
-  r - read (access) a secret
+printHelp() { # Print available script options.
+  printf '%s\n' "Available options:
   w - write (create) a secret
+  r - read (access) a secret
   l - list secret names and paths
   s - generate a random secret value
   u - generate a random username
@@ -293,20 +256,13 @@ printHelp() {
   v - print script version
   h - print help text
 
-  Write 20-character secret for 'userName'
-    ./pwd.sh w userName 20
-
-  Read secret for 'userName'
-    ./pwd.sh r userName
-
-  Read version of secret for 'usernName'
-    ./pwd.sh r userName@1574723625
-
-  Create an archive for backup
-    ./pwd.sh b"""
+  ./pwd.sh w userName 20      - Write 20-character secret for 'userName'
+  ./pwd.sh r userName         - Read secret for 'userName'
+  ./pwd.sh r user1@1574723625 - Read version of secret for 'user1'
+  ./pwd.sh b                  - Create an archive for backup"
 }
 
-printMenu() {
+printMenu() { # Print interactive menu.
   printf '%s\n' "Secrets:"
   printf '  [%s] %-14s[%s] %-14s[%s] %s\n' \
          "W" "Write" "R" "Read" "L" "List"
@@ -322,12 +278,12 @@ printMenu() {
   printf '\n'
 }
 
-initGnuPG() {
+initGnuPG() { # Fail if GnuPG materials are not available.
   [[ -n "${gpgBin}" ]]  || fail "GnuPG binary not available"
   [[ -s "${gpgConf}" ]] || fail "GnuPG config not available"
 }
 
-initStorage() {
+initStorage() { # Create secret store and set permissions.
   if [[ ! -d "${secretStore}" ]] ; then
     mkdir -p "${secretStore}" ; fi
   chmod -R 0700 "${secretPepper}" \
@@ -335,13 +291,10 @@ initStorage() {
                 "${secretStore}" 2>/dev/null
 }
 
-initPepper() {
+initPepper() { # Generate or load "pepper", if configured.
   pepperSecret=""
-
-  if [[ -n "${secretPepper}" && \
-      ! -s "${secretPepper}" ]] ; then
-    generatePepper ; fi
-
+  if [[ -n "${secretPepper}" &&
+      ! -s "${secretPepper}" ]] ; then generatePepper ; fi
   if [[ -s "${secretPepper}" ]] ; then
     pepperSecret="$(cat "${secretPepper}")" ; fi
 }
@@ -371,33 +324,36 @@ while [[ -z "${activity}" ]] ; do
   printf '\n'
 done
 
-if [[ "${activity}" =~ ^([hH])$ ]] ; then
-  final "$(printHelp)"
-elif [[ "${activity}" =~ ^([uU])$ ]] ; then
-  final "Username: $(generateUsername)"
-elif [[ "${activity}" =~ ^([sS])$ ]] ; then
-  final "Secret: $(generateSecret "$@")"
-elif [[ "${activity}" =~ ^([vV])$ ]] ; then
-  final "Version: ${app}" ; fi
+activity="$(printf '%s' "${activity}" |
+  tr '[:upper:]' '[:lower:]')"
+
+case "${activity}" in
+  h|u|s|v|r|l|w|b) : ;;
+  *) fail "Invalid option selected" ;;
+esac
+
+case "${activity}" in
+  h) final "$(printHelp)" ;;
+  u) final "Username: $(generateUsername)" ;;
+  s) final "Secret: $(generateSecret "$@")" ;;
+  v) final "versionScript: ${app}," \
+           "versionBash: ${BASH_VERSION}" ;;
+esac
 
 initOps
 
 username=""
 password=""
 
-if [[ "${activity}" =~ ^([rR])$ ]] ; then
-  readSecret "$@"
-elif [[ "${activity}" =~ ^([lL])$ ]] ; then
-  listSecrets "${secretIndex}"
-  final "Listed ${secretIndex}"
-elif [[ "${activity}" =~ ^([wW])$ ]] ; then
-  newSecret "$@"
-  writeSecret
-  if [[ -n "${backupDaily}" ]] ; then
-    backup ; fi
-elif [[ "${activity}" =~ ^([bB])$ ]] ; then
-  backup
-else
-  fail "Invalid option selected" ; fi
+case "${activity}" in
+  r) readSecret "$@" ;;
+  l) listSecrets "${secretIndex}"
+     final "Listed ${secretIndex}" ;;
+  w) newSecret "$@"
+     writeSecret
+     if [[ -n "${backupDaily}" ]] ; then
+       backup ; fi ;;
+  b) backup ;;
+esac
 
 final "Done"
