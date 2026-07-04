@@ -218,14 +218,14 @@ backup() {
   gpgConfCopy="${app}.gpg.conf"
 
   if [[ -s "${backupStore}" ]] ; then
-    fail "Backup failed - '${backupStore}' exists" ; fi
+    fail "Backup failed: '${backupStore}' exists" ; fi
 
   if [[ ! -s "${secretIndex}" ]] ; then
-    fail "No index to backup" ; fi
+    fail "Backup failed: no secrets in '${secretIndex}'" ; fi
 
   if ! find "${secretStore}" -mindepth 1 -print -quit | \
     grep -q "." ; then
-    fail "No secrets to backup" ; fi
+    fail "Backup failed: no secrets in '${secretStore}'" ; fi
 
   cp "${gpgConf}" "${gpgConfCopy}"
   tar cvf "${backupStore}" \
@@ -286,10 +286,10 @@ printHelp() {
   printf '%s\n' """Available options:
   r - read (access) a secret
   w - write (create) a secret
-  l - list all secret names and paths
-  b - archive materials for backup
+  l - list secret names and paths
   s - generate a random secret value
   u - generate a random username
+  b - archive materials for backup
   v - print script version
   h - print help text
 
@@ -304,6 +304,22 @@ printHelp() {
 
   Create an archive for backup
     ./pwd.sh b"""
+}
+
+printMenu() {
+  printf '%s\n' "Secrets:"
+  printf '  [%s] %-14s[%s] %-14s[%s] %s\n' \
+         "W" "Write" "R" "Read" "L" "List"
+  printf '\n%s\n' "Generate:"
+  printf '  [%s] %-14s[%s] %s\n' \
+         "S" "Secret" "U" "Username"
+  printf '\n%s\n' "Backup:"
+  printf '  [%s] %s\n' \
+         "B" "Archive materials"
+  printf '\n%s\n' "Info:"
+  printf '  [%s] %-14s[%s] %s\n' \
+         "V" "Version" "H" "Help"
+  printf '\n'
 }
 
 initGnuPG() {
@@ -348,14 +364,11 @@ initOps() {
 
 activity=""
 if [[ -n "${1+x}" ]] ; then activity="${1}" ; fi
-while [[ -z "${activity}" ]] ; do read -r -n 1 -p \
-  "Available options:
-  [W]rite, [R]ead or [L]ist secrets
-  Generate [S]ecret or [U]sername values
-  Archive materials for [B]ackup
-  Print app [V]ersion or [H]elp information
-Select an option: " activity
-  printf "\n"
+
+while [[ -z "${activity}" ]] ; do
+  printMenu
+  read -n 1 -r -p "Select an option: " activity
+  printf '\n'
 done
 
 if [[ "${activity}" =~ ^([hH])$ ]] ; then
@@ -363,7 +376,7 @@ if [[ "${activity}" =~ ^([hH])$ ]] ; then
 elif [[ "${activity}" =~ ^([uU])$ ]] ; then
   final "Username: $(generateUsername)"
 elif [[ "${activity}" =~ ^([sS])$ ]] ; then
-  final "Secret: $(generateSecret $@)"
+  final "Secret: $(generateSecret "$@")"
 elif [[ "${activity}" =~ ^([vV])$ ]] ; then
   final "Version: ${app}" ; fi
 
