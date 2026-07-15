@@ -11,7 +11,8 @@ export LC_ALL="C"
 now="$(date +%s)"
 today="$(date +%F)"
 
-gpgBin="$(command -v gpg || command -v gpg2)"
+gpgExec="$(command -v gpg || command -v gpg2)"
+gpgArgs="--armor --batch"
 gpgPath="${HOME}/.gnupg"
 gpgConf="${gpgPath}/gpg.conf"
 
@@ -93,15 +94,14 @@ promptPassword() { # Prompt for a password.
 
 decrypt() { # Decrypt with GPG.
   printf "%s" "${1}${pepperSecret}" | \
-    ${gpgBin} --armor --batch \
+    ${gpgExec} ${gpgArgs} \
     --decrypt --no-symkey-cache \
-    --passphrase-fd 0 \
-    "${2}" 2>/dev/null
+    --passphrase-fd 0 "${2}" 2>/dev/null
 }
 
 encrypt() { # Encrypt with GPG.
-  ${gpgBin} --armor --batch --yes \
-    --symmetric \
+  ${gpgExec} ${gpgArgs} \
+    --yes --symmetric \
     --comment "${optPublicComment}" \
     --passphrase-fd 3 \
     --output "${2}" "${3}" 3< \
@@ -155,9 +155,9 @@ generateUsername() { # Generate a random username.
   printf '%s%s\n' "${words}" "${digits}"
 }
 
-writeSecret() { # Write a secret and update the index.
+saveSecret() { # Write encrypted secret and update index.
   sname="$(tr -dc 'a-z' < /dev/urandom | head -c 10)"
-  spath="${secretStore%/}/${app}.${sname}"
+  spath="${secretStore%/}/${sname}"
 
   if [[ -n "${optCopyBeforeWrite}" ]] ; then
     revealPass <(printf '%s' "${userpass}") ; fi
@@ -182,6 +182,7 @@ listSecrets() { # Decrypt the index to list secrets.
   verifyIndex
   promptPassword "Password to access ${1}: "
   decrypt "${password}" "${1}" || fail "${1} not available"
+  final "Listed ${1}"
 }
 
 backup() { # Archive index, secret store and GPG configuration.
@@ -225,7 +226,7 @@ revealPass() { # Reveal secret and clear after timeout.
   else printf "\n" ; printf "" | ${clipCmd} ; fi
 }
 
-newSecret() { # Prompt for username and password.
+makeSecret() { # Prompt for username and password.
   if [[ -z "${2+x}" ]] ; then read -r -p \
     "Username (Enter to generate): " username
   else username="${2}" ; fi
@@ -250,36 +251,32 @@ printHelp() { # Print available script options.
   w - write (create) a secret
   r - read (access) a secret
   l - list secret names and paths
-  s - generate a random secret value
+  s - generate a random secret
   u - generate a random username
   b - archive materials for backup
   v - print script version
   h - print help text
 
-  ./pwd.sh w userName 20      - Write 20-character secret for 'userName'
-  ./pwd.sh r userName         - Read secret for 'userName'
+  ./pwd.sh w userName 20      - Write 20-char secret for 'userName'
+  ./pwd.sh r userName         - Read latest secret for 'userName'
   ./pwd.sh r user1@1574723625 - Read version of secret for 'user1'
   ./pwd.sh b                  - Create an archive for backup"
 }
 
 printMenu() { # Print interactive menu.
-  printf '%s\n' "Secrets:"
-  printf '  [%s] %-14s[%s] %-14s[%s] %s\n' \
+  printf '%s\n' "Secrets"
+  printf '  [%s] %-12s[%s] %-12s[%s] %s\n' \
          "W" "Write" "R" "Read" "L" "List"
-  printf '\n%s\n' "Generate:"
-  printf '  [%s] %-14s[%s] %s\n' \
-         "S" "Secret" "U" "Username"
-  printf '\n%s\n' "Backup:"
-  printf '  [%s] %s\n' \
-         "B" "Archive materials"
-  printf '\n%s\n' "Info:"
-  printf '  [%s] %-14s[%s] %s\n' \
-         "V" "Version" "H" "Help"
-  printf '\n'
+  printf '\n%s\n' "Generate"
+  printf '  [%s] %-12s[%s] %s\n' "S" "Secret" "U" "Username"
+  printf '\n%s\n' "Backup"
+  printf '  [%s] %s\n' "B" "Archive materials"
+  printf '\n%s\n' "Info"
+  printf '  [%s] %-12s[%s] %s\n\n' "V" "Version" "H" "Help"
 }
 
 initGnuPG() { # Fail if GnuPG materials are not available.
-  [[ -n "${gpgBin}" ]]  || fail "GnuPG binary not available"
+  [[ -n "${gpgExec}" ]] || fail "GnuPG binary not available"
   [[ -s "${gpgConf}" ]] || fail "GnuPG config not available"
 }
 
@@ -347,10 +344,9 @@ password=""
 
 case "${activity}" in
   r) readSecret "$@" ;;
-  l) listSecrets "${secretIndex}"
-     final "Listed ${secretIndex}" ;;
-  w) newSecret "$@"
-     writeSecret
+  l) listSecrets "${secretIndex}" ;;
+  w) makeSecret "$@"
+     saveSecret
      if [[ -n "${backupDaily}" ]] ; then
        backup ; fi ;;
   b) backup ;;
