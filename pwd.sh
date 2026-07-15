@@ -65,12 +65,12 @@ fail()  { log 1 "$@"; exit 1; }
 final() { log 2 "$@"; exit 0; }
 warn()  { log 3 "$@"; }
 
-generatePepper() { # Generate, display and save "pepper" secret value.
+generatePepper() { # Generate, display and save "pepper" value.
   warn "Created '${secretPepper}' - copy to secure storage:"
-  printf "%s\n" \
+  printf '%s\n' \
     "$(tr -dc 'A-Y2-9' < /dev/urandom | tr -d "IOS5UB" | \
     fold -w 6 | paste -sd - - | head -c 27)" | \
-  tee "${secretPepper}" || fail "Failed writing ${secretPepper}"
+    tee "${secretPepper}" || fail "Failed saving ${secretPepper}"
 }
 
 promptPassword() { # Prompt for a password.
@@ -89,11 +89,11 @@ promptPassword() { # Prompt for a password.
       password+="${char}" ; fi
   done
 
-  printf "\n"
+  printf '\n'
 }
 
 decrypt() { # Decrypt with GPG.
-  printf "%s" "${1}${pepperSecret}" | \
+  printf '%s' "${1}${pepperSecret}" | \
     ${gpgExec} ${gpgArgs} \
     --decrypt --no-symkey-cache \
     --passphrase-fd 0 "${2}" 2>/dev/null
@@ -105,7 +105,7 @@ encrypt() { # Encrypt with GPG.
     --comment "${optPublicComment}" \
     --passphrase-fd 3 \
     --output "${2}" "${3}" 3< \
-    <(printf "%s" "${1}${pepperSecret}") 2>/dev/null
+    <(printf '%s' "${1}${pepperSecret}") 2>/dev/null
 }
 
 readSecret() { # Decrypt to read a secret.
@@ -125,6 +125,8 @@ readSecret() { # Decrypt to read a secret.
 
   revealPass <(decrypt "${password}" "${spath}") || \
     fail "Failed to decrypt ${spath}"
+
+  final "Read ${spath}"
 }
 
 generateSecret() { # Generate a secret from urandom.
@@ -143,14 +145,11 @@ generateUsername() { # Generate a random username.
   countDigits=3
   countWords=2
 
-  digits=$(tr -dc '0-9' < /dev/urandom | \
-    head -c ${countDigits})
-  words=$(awk '
-    length > 2 && length < 12 &&
+  digits="$(tr -dc '0-9' < /dev/urandom | head -c ${countDigits})"
+  words="$(awk 'length > 2 && length < 12 &&
     index($0, "'"'"'") == 0 { print tolower($0) }' \
     "${optDictionaryWords}" | sort -R | \
-    head -n ${countWords} | \
-    tr '\n' '-' | tr -cd 'a-z0-9-\n')
+    head -n ${countWords} | tr '\n' '-' | tr -cd 'a-z0-9-\n')"
 
   printf '%s%s\n' "${words}" "${digits}"
 }
@@ -171,11 +170,13 @@ saveSecret() { # Write encrypted secret and update index.
   { if [[ -s "${secretIndex}" ]]; then
       decrypt "${password}" "${secretIndex}" || return
     fi
-    printf "%s@%s:%s\n" "${username}" "${now}" "${spath}"
+    printf '%s@%s:%s\n' "${username}" "${now}" "${spath}"
   } | encrypt "${password}" "${secretIndex}.${now}" -
 
   if ! mv "${secretIndex}.${now}" "${secretIndex}"; then
     fail "Failed saving ${secretIndex}.${now}" ; fi
+
+  final "Saved ${spath}"
 }
 
 listSecrets() { # Decrypt the index to list secrets.
@@ -212,18 +213,18 @@ revealPass() { # Reveal secret and clear after timeout.
     printf '\n%s\n' "$(cat "${1}")"
   else ${clipCmd} < "${1}" ; fi
 
-  printf "\n"
+  printf '\n'
   while [[ "${clipSec}" -gt 0 ]] ; do
-    printf "\r\033[KSecret on %s! Clearing in %.d" \
+    printf '\r\033[KSecret on %s - clearing in %.d' \
       "${clipOut}" "$((clipSec--))" ; sleep 1
   done
 
-  printf "\r\033[KClearing password from %s ..." \
+  printf '\r\033[KClearing password from %s ...' \
     "${clipOut}"
 
   if [[ "${clipOut}" = "screen" ]] ; then
     clear
-  else printf "\n" ; printf "" | ${clipCmd} ; fi
+  else printf '\n' ; printf '' | ${clipCmd} ; fi
 }
 
 makeSecret() { # Prompt for username and password.
@@ -296,7 +297,7 @@ initPepper() { # Generate or load "pepper", if configured.
     pepperSecret="$(cat "${secretPepper}")" ; fi
 }
 
-initClipboard() {
+initClipboard() { # Set up clipboard with optional args.
   if ! command -v "${clipCmd}" >/dev/null 2>&1; then
     clipOut="screen"
     warn "Clipboard not available -" \
