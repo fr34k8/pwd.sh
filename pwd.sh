@@ -22,7 +22,6 @@ app="${vers}-${name}"
 
 backupFname="${app}.$(hostname).${today}.tar" # backup archive
 backupStore="${PWDSH_BACKUP_NAME:=${backupFname}}"
-backupDaily="${PWDSH_BACKUP_DAILY:=}" # daily archive on write
 
 secretStore="${PWDSH_STORE:=${app}.secret}" # secrets storage directory
 secretIndex="${PWDSH_INDEX:=${app}.index}"  # secrets index file
@@ -40,14 +39,14 @@ optSecretLength="${PWDSH_LEN:=20}"    # default secret length
 optPublicComment="${PWDSH_COMMENT:=}" # public/plaintext file comment
 optSecretChars="${PWDSH_CHAR:='A-Za-z0-9!@#$%^&*()_+'}"
 
-trap cleanup EXIT INT TERM
 cleanup() { # "Lock" files on trapped exits.
-  ret=$?
+  local ret=$?
   chmod -R 0000 "${secretPepper}" \
                 "${secretStore}" \
                 "${secretIndex}" 2>/dev/null
   exit "${ret}"
 }
+trap cleanup EXIT
 
 timestamp() { # Format current date and time.
   date +"%A %b %d %H:%M:%S"
@@ -125,8 +124,6 @@ readSecret() { # Decrypt to read a secret.
 
   revealPass <(decrypt "${password}" "${spath}") || \
     fail "Failed to decrypt ${spath}"
-
-  final "Read ${spath}"
 }
 
 generateSecret() { # Generate a secret from urandom.
@@ -150,8 +147,7 @@ generateUsername() { # Generate a random username.
     index($0, "'"'"'") == 0 { print tolower($0) }' \
     "${optDictionaryWords}" | sort -R | \
     head -n ${countWords} | tr '\n' '-' | tr -cd 'a-z0-9-\n')"
-
-  printf '%s%s\n' "${words}" "${digits}"
+  printf '%s%s' "${words}" "${digits}"
 }
 
 saveSecret() { # Write encrypted secret and update index.
@@ -175,20 +171,15 @@ saveSecret() { # Write encrypted secret and update index.
 
   if ! mv "${secretIndex}.${now}" "${secretIndex}"; then
     fail "Failed saving ${secretIndex}.${now}" ; fi
-
-  final "Saved ${spath}"
 }
 
 listSecrets() { # Decrypt the index to list secrets.
   verifyIndex
   promptPassword "Password to access ${1}: "
   decrypt "${password}" "${1}" || fail "${1} not available"
-  final "Listed ${1}"
 }
 
 backup() { # Archive index, secret store and GPG configuration.
-  gpgConfCopy="${app}.gpg.conf"
-
   if [[ -s "${backupStore}" ]] ; then
     fail "Backup failed: '${backupStore}' exists" ; fi
 
@@ -199,13 +190,13 @@ backup() { # Archive index, secret store and GPG configuration.
     grep -q "." ; then
     fail "Backup failed: no secrets in '${secretStore}'" ; fi
 
+  gpgConfCopy="${app}.gpg.conf"
   cp "${gpgConf}" "${gpgConfCopy}"
+
   tar cvf "${backupStore}" \
     "${secretStore}" "${secretIndex}" \
     "${BASH_SOURCE}" "${gpgConfCopy}" ||
     fail "Failed archiving to ${backupStore}"
-
-  final "Archived ${backupStore}"
 }
 
 revealPass() { # Reveal secret and clear after timeout.
@@ -260,8 +251,7 @@ printHelp() { # Print available script options.
 
   ./pwd.sh w userName 20      - Write 20-char secret for 'userName'
   ./pwd.sh r userName         - Read latest secret for 'userName'
-  ./pwd.sh r user1@1574723625 - Read version of secret for 'user1'
-  ./pwd.sh b                  - Create an archive for backup"
+  ./pwd.sh r user1@1574723625 - Read version of secret for 'user1'"
 }
 
 printMenu() { # Print interactive menu.
@@ -334,8 +324,7 @@ case "${activity}" in
   h) final "$(printHelp)" ;;
   u) final "Username: $(generateUsername)" ;;
   s) final "Secret: $(generateSecret "$@")" ;;
-  v) final "versionScript: ${app}," \
-           "versionBash: ${BASH_VERSION}" ;;
+  v) final "${app} - bash ${BASH_VERSION}" ;;
 esac
 
 initOps
@@ -344,13 +333,14 @@ username=""
 password=""
 
 case "${activity}" in
-  r) readSecret "$@" ;;
-  l) listSecrets "${secretIndex}" ;;
+  r) readSecret "$@"
+     final "Read secret" ;;
+  l) listSecrets "${secretIndex}"
+     final "Listed ${secretIndex}" ;;
   w) makeSecret "$@"
      saveSecret
-     if [[ -n "${backupDaily}" ]] ; then
-       backup ; fi ;;
-  b) backup ;;
+     final "Saved secret" ;;
+  b) backup
+     final "Archived ${backupStore}" ;;
 esac
 
-final "Done"
