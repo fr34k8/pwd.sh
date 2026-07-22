@@ -8,7 +8,7 @@ set -o pipefail
 umask 077
 export LC_ALL="C"
 
-read now today <<< "$(date +'%s %F')"
+read -r now today <<< "$(date +'%s %F')"
 
 gpgExec="$(command -v gpg || command -v gpg2)"
 gpgArgs="--armor --batch"
@@ -33,10 +33,11 @@ clipSec="${PWDSH_CLIP_SEC:=10}"        # seconds until clipboard clear
 
 optCopyBeforeWrite="${PWDSH_COPY:=}"  # copy secret before write
 optDictionaryWords="${PWDSH_DICT:=/usr/share/dict/words}"
+optPublicComment="${PWDSH_COMMENT:=}" # public/plaintext file comment
 optSecretEchoChars="${PWDSH_ECHO:=*}" # echo "*" when typing passwords
 optSecretLength="${PWDSH_LEN:=20}"    # default secret length
-optPublicComment="${PWDSH_COMMENT:=}" # public/plaintext file comment
 optSecretChars="${PWDSH_CHAR:='A-Za-z0-9!@#$%^&*()_+'}"
+optRandomSrc="${PWDSH_RANDSRC:=/dev/urandom}"
 
 cleanup() { # "Lock" files on trapped exits.
   local ret=$?
@@ -66,7 +67,7 @@ warn()  { log 3 "$@"; }
 generatePepper() { # Generate, display and save "pepper" value.
   warn "Created '${secretPepper}' - copy to secure storage:"
   printf '%s\n' \
-    "$(tr -dc 'A-Y2-9' < /dev/urandom | tr -d "IOS5UB" | \
+    "$(tr -dc 'A-Y2-9' < "${optRandomSrc}" | tr -d "IOS5UB" |
     fold -w 6 | paste -sd - - | head -c 27)" | \
     tee "${secretPepper}" || fail "Failed saving ${secretPepper}"
 }
@@ -92,13 +93,13 @@ promptPassword() { # Prompt for a password.
 
 decrypt() { # Decrypt with GPG.
   printf '%s' "${1}${pepperSecret}" | \
-    ${gpgExec} ${gpgArgs} \
+    ${gpgExec} "${gpgArgs}" \
     --decrypt --no-symkey-cache \
     --passphrase-fd 0 "${2}" 2>/dev/null
 }
 
 encrypt() { # Encrypt with GPG.
-  ${gpgExec} ${gpgArgs} \
+  ${gpgExec} "${gpgArgs}" \
     --yes --symmetric \
     --comment "${optPublicComment}" \
     --passphrase-fd 3 \
@@ -117,19 +118,19 @@ readSecret() { # Decrypt to read a secret.
 
   promptPassword "Password to access ${secretIndex}: "
 
-  sline=$(decrypt "${password}" "${secretIndex}" | \
+  sline=$(decrypt "${password}" "${secretIndex}" |
     grep -F "${username}" | tail -1)
   if [[ -z "${sline}" ]] ; then
     fail "Secret not available"
   fi
 
-  spath="${secretStore}/${sline#*${secretStore}}"
+  spath="${secretStore}/${sline#*"${secretStore}"}"
 
-  revealPass <(decrypt "${password}" "${spath}") || \
+  revealPass <(decrypt "${password}" "${spath}") ||
     fail "Failed to decrypt ${spath}"
 }
 
-generateSecret() { # Generate a secret from urandom.
+generateSecret() { # Generate a random string.
   if [[ -z "${3+x}" ]] ; then read -r -p \
     "Secret length (Enter for ${optSecretLength}): " length
   else length="${3}" ; fi
@@ -137,7 +138,7 @@ generateSecret() { # Generate a secret from urandom.
   if [[ "${length}" =~ ^[0-9]+$ ]] ; then
     optSecretLength="${length}" ; fi
 
-  tr -dc "${optSecretChars}" < /dev/urandom | \
+  tr -dc "${optSecretChars}" < "${optRandomSrc}" |
     head -c "${optSecretLength}"
 }
 
@@ -145,17 +146,17 @@ generateUsername() { # Generate a random username.
   countDigits=3
   countWords=2
 
-  digits="$(tr -dc '0-9' < /dev/urandom | head -c ${countDigits})"
+  digits="$(tr -dc '0-9' < "${optRandomSrc}" | head -c ${countDigits})"
   words="$(awk 'length > 2 && length < 12 &&
     index($0, "'"'"'") == 0 { print tolower($0) }' \
-    "${optDictionaryWords}" | sort -R | \
+    "${optDictionaryWords}" | sort -R |
     head -n ${countWords} | tr '\n' '-' | tr -cd 'a-z0-9-\n')"
 
   printf '%s%s' "${words}" "${digits}"
 }
 
 saveSecret() { # Write encrypted secret and update index.
-  sname="$(tr -dc 'a-z' < /dev/urandom | head -c 10)"
+  sname="$(tr -dc 'a-z' < ${optRandomSrc} | head -c 10)"
   spath="${secretStore%/}/${sname}"
 
   if [[ -n "${optCopyBeforeWrite}" ]] ; then
@@ -163,8 +164,8 @@ saveSecret() { # Write encrypted secret and update index.
 
   promptPassword "Password to access ${secretIndex}: "
 
-  printf '%s\n' "${userpass}" | \
-    encrypt "${password}" "${spath}" - || \
+  printf '%s\n' "${userpass}" |
+    encrypt "${password}" "${spath}" - ||
       fail "Failed saving ${spath}"
 
   { if [[ -s "${secretIndex}" ]]; then
@@ -190,7 +191,7 @@ backup() { # Archive index, secret store and GPG configuration.
   if [[ ! -s "${secretIndex}" ]] ; then
     fail "Backup failed: no secrets in '${secretIndex}'" ; fi
 
-  if ! find "${secretStore}" -mindepth 1 -print -quit | \
+  if ! find "${secretStore}" -mindepth 1 -print -quit |
     grep -q "." ; then
     fail "Backup failed: no secrets in '${secretStore}'" ; fi
 
@@ -199,7 +200,7 @@ backup() { # Archive index, secret store and GPG configuration.
 
   tar cvf "${backupStore}" \
     "${secretStore}" "${secretIndex}" \
-    "${BASH_SOURCE}" "${gpgConfCopy}" ||
+    "${BASH_SOURCE[0]}" "${gpgConfCopy}" ||
     fail "Failed archiving to ${backupStore}"
 }
 
@@ -211,7 +212,8 @@ revealPass() { # Reveal secret and clear after timeout.
   printf '\n'
   while [[ "${clipSec}" -gt 0 ]] ; do
     printf '\r\033[KSecret on %s - clearing in %.d' \
-      "${clipOut}" "$((clipSec--))" ; sleep 1
+      "${clipOut}" "$((clipSec--))"
+    sleep 1
   done
 
   printf '\r\033[KClearing password from %s ...' \
