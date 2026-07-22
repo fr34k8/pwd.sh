@@ -93,13 +93,13 @@ promptPassword() { # Prompt for a password.
 
 decrypt() { # Decrypt with GPG.
   printf '%s' "${1}${pepperSecret}" | \
-    ${gpgExec} "${gpgArgs}" \
+    ${gpgExec} ${gpgArgs} \
     --decrypt --no-symkey-cache \
     --passphrase-fd 0 "${2}" 2>/dev/null
 }
 
 encrypt() { # Encrypt with GPG.
-  ${gpgExec} "${gpgArgs}" \
+  ${gpgExec} ${gpgArgs} \
     --yes --symmetric \
     --comment "${optPublicComment}" \
     --passphrase-fd 3 \
@@ -252,7 +252,7 @@ printHelp() { # Print available script options.
   s - generate a random secret
   u - generate a random username
   b - archive materials for backup
-  v - print script version
+  v - print version information
   h - print help text
 
   ./pwd.sh w userName 20      - Write 20-char secret for 'userName'
