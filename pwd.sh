@@ -8,8 +8,7 @@ set -o pipefail
 umask 077
 export LC_ALL="C"
 
-now="$(date +%s)"
-today="$(date +%F)"
+read now today <<< "$(date +'%s %F')"
 
 gpgExec="$(command -v gpg || command -v gpg2)"
 gpgArgs="--armor --batch"
@@ -17,10 +16,10 @@ gpgPath="${HOME}/.gnupg"
 gpgConf="${gpgPath}/gpg.conf"
 
 vers="v4"
-name="$(basename "$0")"
+name="${0##*/}"
 app="${vers}-${name}"
 
-backupFname="${app}.$(hostname).${today}.tar" # backup archive
+backupFname="${app}.$(hostname).${today}.tar"
 backupStore="${PWDSH_BACKUP_NAME:=${backupFname}}"
 
 secretStore="${PWDSH_STORE:=${app}.secret}" # secrets storage directory
@@ -118,9 +117,13 @@ readSecret() { # Decrypt to read a secret.
 
   promptPassword "Password to access ${secretIndex}: "
 
-  spath=$(decrypt "${password}" "${secretIndex}" | \
-    grep -F "${username}" | tail -1 | cut -d ":" -f 2) || \
-      fail "Secret not available"
+  sline=$(decrypt "${password}" "${secretIndex}" | \
+    grep -F "${username}" | tail -1)
+  if [[ -z "${sline}" ]] ; then
+    fail "Secret not available"
+  fi
+
+  spath="${secretStore}/${sline#*${secretStore}}"
 
   revealPass <(decrypt "${password}" "${spath}") || \
     fail "Failed to decrypt ${spath}"
@@ -147,6 +150,7 @@ generateUsername() { # Generate a random username.
     index($0, "'"'"'") == 0 { print tolower($0) }' \
     "${optDictionaryWords}" | sort -R | \
     head -n ${countWords} | tr '\n' '-' | tr -cd 'a-z0-9-\n')"
+
   printf '%s%s' "${words}" "${digits}"
 }
 
@@ -336,11 +340,10 @@ case "${activity}" in
   r) readSecret "$@"
      final "Read secret" ;;
   l) listSecrets "${secretIndex}"
-     final "Listed ${secretIndex}" ;;
+     final "Listed secrets" ;;
   w) makeSecret "$@"
      saveSecret
      final "Saved secret" ;;
   b) backup
      final "Archived ${backupStore}" ;;
 esac
-
