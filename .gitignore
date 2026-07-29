@@ -1,3 +1,5 @@
+v[0-9]*
+.DS_Store
 pwd.*.tar
 pwd.index*
 pwd.pepper

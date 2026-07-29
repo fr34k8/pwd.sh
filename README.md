@@ -1,30 +1,33 @@
-pwd.sh is a Bash shell script to manage text-based secrets, such as passwords.
+pwd.sh is a Bash script to manage text secrets, such as passwords, using [GnuPG](https://gnupg.org/).
 
-It uses GnuPG to symmetrically (i.e., using a passphrase) encrypt and decrypt plaintext files.
-
-Each secret is individually encrypted to a randomly-named file in the *safe* directory. An encrypted index is used to map usernames to the respective secret file. Both the index and secret files can be decrypted with GnuPG without requiring pwd.sh.
+Each secret is saved to a randomly-named file in a directory. An encrypted index maps usernames to secrets contained in files. Both the index and files can be decrypted directly with GnuPG - without pwd.sh.
 
 # Install
 
-For the latest version, clone the repository or download the script directly:
+Download from [Releases](https://github.com/drduh/pwd.sh/releases), or to use the latest version, clone the repository
 
-```console
+```bash
 git clone https://github.com/drduh/pwd.sh
-
-wget https://raw.githubusercontent.com/drduh/pwd.sh/master/pwd.sh
 ```
 
-Versioned [Releases](https://github.com/drduh/pwd.sh/releases) are also available.
+Or download the script directly:
+
+```bash
+wget https://raw.githubusercontent.com/drduh/pwd.sh/master/pwd.sh
+```
 
 # Use
 
 Run the script interactively using `./pwd.sh` or symlink to a directory in `PATH`:
 
-- `w` to create a secret
-- `r` to access a secret
-- `l` to list all secrets
-- `b` to create a backup archive
-- `h` to print the help text
+- `w` - write (create) a secret
+- `r` - read (access) a secret
+- `l` - list secret names and paths
+- `s` - generate a random secret
+- `u` - generate a random username
+- `b` - archive materials for backup
+- `v` - print version information
+- `h` - print help text
 
 Options can also be passed on the command line.
 
@@ -66,19 +69,18 @@ Several customizable options and features are also available, and can be configu
 
 Variable | Description | Default | Available options
 ---: | :---: | :---: | :---
-`PWDSH_CLIP` | clipboard to use | `xclip` | `pbcopy` on macOS
-`PWDSH_CLIP_ARGS` | arguments to pass to clipboard command | unset (disabled) | `-i -selection clipboard` to use primary (control-v) clipboard with xclip
-`PWDSH_TIME` | seconds to clear password from clipboard/screen | `10` | any valid integer
-`PWDSH_LEN` | default password length | `14` | any valid integer
-`PWDSH_COPY` | copy password to clipboard before write | unset (disabled) | `1` or `true` to enable
-`PWDSH_DAILY` | create daily backup archive on write | unset (disabled) | `1` or `true` to enable
-`PWDSH_CHARS` | character set for passwords | `[:alnum:]!?@#$%^&*();:+=` | any valid characters
-`PWDSH_COMMENT` | **unencrypted** comment to include in index and safe files | unset | any valid string
-`PWDSH_DEST` | password output destination, will set to `screen` without clipboard | `clipboard` | `clipboard` or `screen`
-`PWDSH_ECHO` | character used to echo password input | `*` | any valid character
-`PWDSH_SAFE` | safe directory name | `safe` | any valid string
+`PWDSH_STORE` | secret storage directory | `app.store` | any valid string
 `PWDSH_INDEX` | index file name | `pwd.index` | any valid string
-`PWDSH_BACKUP` | backup archive file name | `pwd.$hostname.$today.tar` | any valid string
+`PWDSH_CLIP_CMD` | clipboard to use | `xclip` | `pbcopy` on macOS
+`PWDSH_CLIP_ARG` | arguments to pass to clipboard command | unset (disabled) | `-i -selection clipboard` to use primary (control-v) clipboard with xclip
+`PWDSH_CLIP_OUT` | password output destination, will set to `screen` without clipboard | `clipboard` | `clipboard` or `screen`
+`PWDSH_CLIP_SEC` | seconds to clear password from clipboard/screen | `10` | any valid integer
+`PWDSH_COPY` | copy password to clipboard before write | unset (disabled) | `1` or `true` to enable
+`PWDSH_COMMENT` | **unencrypted** comment to include in index and secret files | unset | any valid string
+`PWDSH_ECHO` | character used to echo password input | `*` | any valid character
+`PWDSH_LEN` | default password length | `14` | any valid integer
+`PWDSH_CHARS` | character set for passwords | `[:alnum:]!?@#$%^&*();:+=` | any valid characters
+`PWDSH_BACKUP_NAME` | backup archive file name | `pwd.$hostname.$today.tar` | any valid string
 `PWDSH_PEPPER` | file containing [Pepper](#Pepper) | unset (disabled) | any valid file path
 
 See [config/gpg.conf](https://github.com/drduh/config/blob/main/gpg.conf) for additional GnuPG options.
@@ -87,7 +89,7 @@ Also see [drduh/Purse](https://github.com/drduh/Purse) - a fork which integrates
 
 # Pepper
 
-The [Pepper](https://www.wikipedia.org/wiki/Pepper_(cryptography)) is an additional string appended to the safe passphrase to improve its strength. When the `PWDSH_PEPPER` option is set to a valid path, a secret value is generated and displayed once, then saved to the respective file.
+The [Pepper](https://www.wikipedia.org/wiki/Pepper_(cryptography)) is an additional string appended to the storage passphrase to improve its strength. When the `PWDSH_PEPPER` option is set to a valid path, a secret value is generated and displayed once, then saved to the respective file.
 
 The Pepper should be written down (for example, transcribed with [passphrase.html](https://raw.githubusercontent.com/drduh/YubiKey-Guide/master/templates/passphrase.html) or [passphrase.txt](https://raw.githubusercontent.com/drduh/YubiKey-Guide/master/templates/passphrase.txt) template) and stored in a secure, durable location for backup.
 
@@ -96,4 +98,4 @@ This feature may enable use of a more memorable - and possibly weaker passphrase
 The Pepper feature is opt-in and has no effect unless explicitly enabled.
 
 > [!WARNING]
-> The Pepper is **not** included in backup archives! Without the Pepper, the safe will **not** be accessible with the safe passphrase alone!
+> The Pepper is **not** included in backup archives! Without the Pepper, secret storage will **not** be accessible with the passphrase alone!
